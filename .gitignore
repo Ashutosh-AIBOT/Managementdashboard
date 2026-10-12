@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build / Electron
+dist/
+out/
+release/
+dist-electron/
+*.tsbuildinfo
+
+# Env & secrets (keep .env.example)
+!.env.example
+
+# Logs & caches
+*.log*
+.eslintcache
+.cache/
+coverage/
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+*.swp
+*.swo
+
+# Local Chrome auth profiles (runtime)
+chrome-login-profiles/
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+config.bat
