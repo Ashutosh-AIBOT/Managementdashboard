@@ -32,20 +32,34 @@ const SENTIMENT_SCORE: Record<Sentiment, number> = {
 }
 
 /**
- * UTC day key for a Slack `ts` (seconds with a fractional part), or `''` when
- * the value cannot be decoded.
+ * The ±8.64e15 ms window `Date` accepts. Past it `toISOString()` throws rather
+ * than returning anything, which is why this is checked and not assumed.
+ */
+const MAX_TIME_MS = 8.64e15
+
+/**
+ * UTC day key for a Slack `ts` (seconds with a fractional part).
  *
- * Never throws. A malformed stored `ts` would otherwise take the render down
- * with it, and this is exported for callers that bucket straight off the key.
- * `''` is the degradation, not a `toISOString()` of garbage: `Number('')`
- * yields 0, so an absent `ts` would otherwise mint a confident `1970-01-01`.
- * An empty key cannot collide with a real `YYYY-MM-DD` bucket, so a bad value
- * reads as an absent day instead of a plausible-looking wrong one.
+ * **Returns a `YYYY-MM-DD` key or `''`, and never throws** — the whole contract
+ * in one line, because Task 9 buckets straight off this key. `''` is the
+ * degradation rather than a `toISOString()` of whatever came in:
+ *
+ * - `Number('')` is 0, so an absent `ts` would mint a confident `1970-01-01`.
+ * - A finite `ts` can still overflow `Date` (`1e15` s is `1e18` ms), and
+ *   `toISOString()` raises on that rather than saturating.
+ * - A `ts` inside `Date`'s range but past year 9999 makes `toISOString()` emit
+ *   the expanded form (`+275760-09-13T…`), whose first 10 characters are not a
+ *   day key at all.
+ *
+ * An empty key cannot collide with a real bucket, so a bad value reads as an
+ * absent day instead of a plausible-looking wrong one.
  */
 export function utcDay(ts: string): string {
   const ms = Number(ts) * 1000
-  if (ts.trim() === '' || !Number.isFinite(ms)) return ''
-  return new Date(ms).toISOString().slice(0, 10)
+  if (ts.trim() === '' || !Number.isFinite(ms) || Math.abs(ms) > MAX_TIME_MS) return ''
+  const day = new Date(ms).toISOString().slice(0, 10)
+  // A leading sign is `toISOString()`'s expanded-year marker: `+275760-09`, not `YYYY-MM-DD`.
+  return day.startsWith('+') || day.startsWith('-') ? '' : day
 }
 
 /**

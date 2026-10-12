@@ -51,8 +51,24 @@ describe('utcDay', () => {
     expect(utcDay('   ')).toBe('')
   })
 
-  it('degrades when the decoded instant is out of Date range', () => {
-    expect(utcDay('1e308')).toBe('')
+  it('degrades instead of throwing when the instant falls outside the Date range', () => {
+    // 1e15 s is a finite 1e18 ms, so a finite check alone would let it through to `toISOString`.
+    expect(utcDay('1e15')).toBe('')
+    expect(utcDay('-1e15')).toBe('')
+    expect(utcDay('1e308')).toBe('') // overflows to Infinity on the multiply
+  })
+
+  it('degrades on a year that ISO cannot spell in four digits', () => {
+    // In `Date` range, but `toISOString()` switches to `+275760-09-13`, whose
+    // first 10 characters are not a `YYYY-MM-DD` key.
+    expect(utcDay('8640000000000')).toBe('')
+    expect(utcDay('-8640000000000')).toBe('')
+    expect(utcDay('253402300800')).toBe('') // year 10000
+  })
+
+  it('still decodes an instant at the edge of a four-digit year', () => {
+    expect(utcDay('253402300799.999')).toBe('9999-12-31') // last ms of year 9999
+    expect(utcDay('-62167219200')).toBe('0000-01-01') // first ms of year 0000
   })
 })
 
