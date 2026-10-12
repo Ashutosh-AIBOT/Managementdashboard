@@ -1,0 +1,62 @@
+appId: com.orbit.app
+productName: Orbit
+afterPack: build/afterPack.cjs
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+extraResources:
+  # Bundles local .env into the app Resources so packaged installs can sign in.
+  # Do not commit .env; only present on the machine that runs build:mac.
+  - from: .env
+    to: .env
+win:
+  executableName: Orbit
+  icon: icon.ico
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: Orbit
+  uninstallDisplayName: Orbit
+  createDesktopShortcut: always
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+  title: Orbit
+mac:
+  icon: icon.icns
+  category: public.app-category.productivity
+  target:
+    - zip
+    - dmg
+  entitlementsInherit: build/entitlements.mac.plist
+  # Must be a map (not a YAML list) or electron-builder writes broken numeric Info.plist keys.
+  extendInfo:
+    CFBundleDisplayName: Orbit
+    CFBundleName: Orbit
+    NSUserNotificationAlertStyle: alert
+    NSUserNotificationsUsageDescription: Orbit shows alerts for unread Slack, Teams, and WhatsApp messages.
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+linux:
+  icon: icon.png
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: electronjs.org
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates
