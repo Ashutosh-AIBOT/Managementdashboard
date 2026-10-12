@@ -11,7 +11,12 @@ import {
   toggleWatched,
   utcDay
 } from '../../src/shared/dashboard-view'
-import type { DashboardChannel, DashboardMessage, WorkspaceRollup } from '../../src/shared/types'
+import type {
+  DashboardChannel,
+  DashboardMessage,
+  Sentiment,
+  WorkspaceRollup
+} from '../../src/shared/types'
 
 const NOW = Date.UTC(2026, 9, 12, 12, 0, 0) // 2026-10-12T12:00:00Z
 
@@ -30,13 +35,24 @@ function channel(over: Partial<DashboardChannel> = {}): DashboardChannel {
   }
 }
 
-function message(ts: string, sentiment?: 'positive' | 'neutral' | 'negative'): DashboardMessage {
+function message(ts: string, sentiment?: Sentiment): DashboardMessage {
   return { ts, text: 'x', ...(sentiment ? { sentiment } : {}) }
 }
 
 describe('utcDay', () => {
   it('keys by UTC, not local time', () => {
     expect(utcDay('1791811200.000100')).toBe('2026-10-12')
+  })
+
+  it('degrades to an empty key for a ts it cannot decode, rather than throwing', () => {
+    expect(utcDay('abc')).toBe('')
+    // `Number('')` is 0, so without an explicit guard this mints a real-looking 1970 day.
+    expect(utcDay('')).toBe('')
+    expect(utcDay('   ')).toBe('')
+  })
+
+  it('degrades when the decoded instant is out of Date range', () => {
+    expect(utcDay('1e308')).toBe('')
   })
 })
 
@@ -89,13 +105,41 @@ describe('sentimentTrend', () => {
       message('1791811260.000200', 'negative'), // 2026-10-12T13:21:00Z
       message('1791714000.000300', 'neutral') // 2026-10-11T10:20:00Z
     ])
-    expect(trend).toHaveLength(2)
-    expect(trend[0]).toEqual({ date: '2026-10-11', score: 0, count: 1 })
+    // The 2026-10-12 bucket is a real two-message mean (+1 and -1), not a single point.
+    expect(trend).toEqual([
+      { date: '2026-10-11', score: 0, count: 1 },
+      { date: '2026-10-12', score: 0, count: 2 }
+    ])
   })
 
-  it('omits days with no labelled messages instead of emitting zero-score points', () => {
-    const trend = sentimentTrend([message('1791811200.000100', 'positive')], 30)
-    expect(trend).toHaveLength(1)
+  it('omits a day whose only message is unlabelled rather than scoring it', () => {
+    const trend = sentimentTrend([
+      message('1791811200.000100', 'positive'), // 2026-10-12, labelled
+      message('1791465600.000400') // 2026-10-08, no label — inside the window
+    ])
+    // Without the `!m.sentiment` guard the unlabelled day scores NaN and shows up here.
+    expect(trend.map((p) => p.date)).toEqual(['2026-10-12'])
+  })
+
+  it('averages a lopsided day instead of summing it', () => {
+    const trend = sentimentTrend([
+      message('1791638400.000100', 'positive'), // 2026-10-10T13:20:00Z
+      message('1791638460.000100', 'positive'),
+      message('1791638520.000100', 'positive'),
+      message('1791638580.000100', 'negative')
+    ])
+    // +3 and -1 is a sum of 2; only the division makes it 0.5.
+    expect(trend).toEqual([{ date: '2026-10-10', score: 0.5, count: 4 }])
+  })
+
+  it('rounds a repeating mean to three decimals', () => {
+    const trend = sentimentTrend([
+      message('1791552000.000100', 'positive'), // 2026-10-09T13:20:00Z
+      message('1791552060.000100', 'positive'),
+      message('1791552120.000100', 'negative')
+    ])
+    // +2 and -1 over 3 messages is 0.333…, not 0.333.
+    expect(trend).toEqual([{ date: '2026-10-09', score: 0.333, count: 3 }])
   })
 
   it('returns an empty trend for an empty window', () => {
@@ -148,6 +192,14 @@ describe('orderWorkspaces', () => {
 describe('watch list', () => {
   it('treats an absent list as fully watched, so pre-v2 data keeps syncing', () => {
     expect(effectiveWatched(undefined, ['C01', 'C02'])).toEqual(['C01', 'C02'])
+  })
+
+  it('copies rather than aliasing the caller list on that back-compat path', () => {
+    const all = ['C01', 'C02']
+    const effective = effectiveWatched(undefined, all)
+    expect(effective).not.toBe(all)
+    effective.push('C99')
+    expect(all).toEqual(['C01', 'C02'])
   })
 
   it('treats an empty list as watching nothing', () => {

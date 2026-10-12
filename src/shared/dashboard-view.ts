@@ -31,9 +31,21 @@ const SENTIMENT_SCORE: Record<Sentiment, number> = {
   negative: -1
 }
 
-/** UTC day key for a Slack `ts` (seconds with a fractional part). */
+/**
+ * UTC day key for a Slack `ts` (seconds with a fractional part), or `''` when
+ * the value cannot be decoded.
+ *
+ * Never throws. A malformed stored `ts` would otherwise take the render down
+ * with it, and this is exported for callers that bucket straight off the key.
+ * `''` is the degradation, not a `toISOString()` of garbage: `Number('')`
+ * yields 0, so an absent `ts` would otherwise mint a confident `1970-01-01`.
+ * An empty key cannot collide with a real `YYYY-MM-DD` bucket, so a bad value
+ * reads as an absent day instead of a plausible-looking wrong one.
+ */
 export function utcDay(ts: string): string {
-  return new Date(Number(ts) * 1000).toISOString().slice(0, 10)
+  const ms = Number(ts) * 1000
+  if (ts.trim() === '' || !Number.isFinite(ms)) return ''
+  return new Date(ms).toISOString().slice(0, 10)
 }
 
 /**
@@ -118,9 +130,15 @@ export function isWatched(ids: string[] | undefined, channelId: string): boolean
   return ids === undefined || ids.includes(channelId)
 }
 
-/** An absent list means "everything", which is how pre-v2 workspaces keep syncing. */
+/**
+ * An absent list means "everything", which is how pre-v2 workspaces keep syncing.
+ *
+ * Always a fresh array, on that path too: callers persist the result straight
+ * into renderer state, so handing back the caller's own array would let a later
+ * in-place edit mutate it without notifying anything.
+ */
 export function effectiveWatched(ids: string[] | undefined, allChannelIds: string[]): string[] {
-  if (ids === undefined) return allChannelIds
+  if (ids === undefined) return [...allChannelIds]
   const known = new Set(allChannelIds)
   return ids.filter((id) => known.has(id))
 }
