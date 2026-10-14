@@ -31,6 +31,10 @@ function channel(over: Partial<DashboardChannel> = {}): DashboardChannel {
     aiConfigured: true,
     aiEligible: 0,
     aiAnalyzed: 0,
+    // `channelAiState` reads none of the series, so an empty derivation is the
+    // honest fixture: `channel()` cannot supply a real one without a window.
+    sentimentTrend: [],
+    dailySeries: [],
     ...over
   }
 }

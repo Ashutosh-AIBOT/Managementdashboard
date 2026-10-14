@@ -203,8 +203,23 @@ export interface ChannelAiStatus {
   aiAnalyzed: number
 }
 
-/** A stored channel plus its derived AI status. */
-export type DashboardChannel = ChannelRollup & ChannelAiStatus
+/** Width of both derived series. Matches `MESSAGE_RETENTION_DAYS` in the store. */
+export const TREND_DAYS = 90
+
+/**
+ * A stored channel plus everything derived from it on read.
+ *
+ * `TrendPoint` is named through an inline `import()` because `dashboard-view.ts`
+ * already imports this file: a top-level type import would close a cycle between
+ * the model and the view model built on top of it.
+ */
+export type DashboardChannel = ChannelRollup &
+  ChannelAiStatus & {
+    /** Per-day sentiment over the 90-day window. Days with no labels are omitted. */
+    sentimentTrend: import('./dashboard-view').TrendPoint[]
+    /** Oldest-first, zero-filled, `TREND_DAYS` long. Sparkline input. */
+    dailySeries: number[]
+  }
 
 /** A stored workspace whose channels carry their derived AI status. */
 export interface DashboardWorkspace extends Omit<WorkspaceRollup, 'channels'> {

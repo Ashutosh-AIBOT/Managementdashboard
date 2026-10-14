@@ -1,4 +1,5 @@
 import { IpcChannels } from '../../shared/ipc-contract'
+import { TREND_DAYS } from '../../shared/types'
 import type {
   ClearDashboardPayload,
   DashboardChannel,
@@ -9,6 +10,7 @@ import type {
   SyncNowPayload,
   SyncNowResult
 } from '../../shared/types'
+import { dailySeries, sentimentTrend } from '../../shared/dashboard-view'
 import type { AiAnalyzer, AiMessageResult } from '../slack/ai-analyzer'
 import type { DashboardStore } from '../slack/dashboard-store'
 import { ReconnectRequiredError, SyncInProgressError, type SyncEngine } from '../slack/sync-engine'
@@ -313,11 +315,14 @@ function round3(n: number): number {
 /**
  * Read the whole dashboard and derive everything the UI must not have to guess.
  *
- * The three AI fields are counted from the stored window rather than persisted:
- * `aiConfigured` is a configuration fact from the analyzer, `aiEligible` is the
- * number of messages that still have text, and `aiAnalyzed` is how many of those
- * carry a label. Recomputing them per read means a snapshot can never disagree
- * with the file it came from, and no second copy of the truth exists to drift.
+ * Every derived field — the three AI counts, the trend and the series — is
+ * counted from the stored window rather than persisted. `aiConfigured` is a
+ * configuration fact from the analyzer, `aiEligible` is the number of messages
+ * that still have text, `aiAnalyzed` is how many of those carry a label.
+ * Recomputing them per read means a snapshot can never disagree with the file it
+ * came from, and no second copy of the truth exists to drift. The same holds for
+ * the series: both windows are fixed at `TREND_DAYS` so the renderer can index
+ * into them by offset without carrying its own clock.
  */
 async function buildSnapshot(deps: SlackDashboardIpcDeps): Promise<DashboardSnapshot> {
   const [file, settings] = await Promise.all([deps.dashboardStore.read(), deps.settingsStore.get()])
@@ -334,7 +339,16 @@ async function buildSnapshot(deps: SlackDashboardIpcDeps): Promise<DashboardSnap
         aiEligible += 1
         if (message.sentiment) aiAnalyzed += 1
       }
-      channels[channelId] = { ...channel, aiConfigured, aiEligible, aiAnalyzed }
+      channels[channelId] = {
+        ...channel,
+        aiConfigured,
+        aiEligible,
+        aiAnalyzed,
+        // Spread after the channel so a derived field can never be shadowed by
+        // a stale one that happens to be sitting in the file.
+        sentimentTrend: sentimentTrend(channel.recentMessages, TREND_DAYS),
+        dailySeries: dailySeries(channel.dailyCounts, TREND_DAYS)
+      }
     }
     workspaces[teamId] = { ...workspace, channels }
   }

@@ -4,6 +4,7 @@ import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IpcChannels, type IpcApi } from '../../src/shared/ipc-contract'
 import type { DashboardSnapshot, SyncProgressPayload } from '../../src/shared/types'
+import { TREND_DAYS } from '../../src/shared/types'
 import { AiAnalyzer, type AiMessageResult, type AiProvider } from '../../src/main/slack/ai-analyzer'
 import { DashboardStore } from '../../src/main/slack/dashboard-store'
 import {
@@ -131,6 +132,8 @@ interface Harness {
   deps: SlackDashboardIpcDeps
   sent: Array<{ channel: string; payload: unknown }>
   store: DashboardStore
+  /** The store's own on-disk path, so a test can read the raw bytes back. */
+  filePath: string
 }
 
 describe('dashboard IPC contract', () => {
@@ -297,6 +300,37 @@ describe('dashboard IPC contract', () => {
 
     expect(Object.keys(snapshot.workspaces).sort()).toEqual(['T1', 'T2'])
     expect(snapshot.syncingTeamIds).toEqual(['T2'])
+  })
+
+  it('derives a trend and a zero-filled series without persisting either', async () => {
+    await seedWorkspace(harness, 'T1', 'Acme')
+    // The label a sync would have written, so the trend has a real point to
+    // derive rather than an empty array that satisfies any assertion.
+    await harness.store.update((file) => {
+      file.workspaces.T1.channels.C1.recentMessages[0].sentiment = 'positive'
+    })
+    // Both derivations measure their window from the wall clock and RECENT_TS is
+    // a fixed instant, so the clock is pinned or the fixture ages out of it.
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW_MS)
+
+    try {
+      const snapshot = (await invoke('SlackDashboardGet')) as DashboardSnapshot
+      const ch = snapshot.workspaces.T1.channels.C1
+      expect(ch.dailySeries).toHaveLength(TREND_DAYS)
+      expect(ch.sentimentTrend.every((p) => p.count > 0)).toBe(true)
+      // Neither is merely well-shaped: the seeded message is today, so it is
+      // the last sparkline point and the only trend day.
+      expect(ch.dailySeries.at(-1)).toBe(1)
+      expect(ch.sentimentTrend).toEqual([{ date: '2026-01-15', score: 1, count: 1 }])
+
+      // The persisted file must not have gained either field.
+      const raw = JSON.parse(await readFile(harness.filePath, 'utf8'))
+      expect(raw.workspaces.T1.channels.C1.sentimentTrend).toBeUndefined()
+      expect(raw.workspaces.T1.channels.C1.dailySeries).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -949,6 +983,7 @@ function buildHarness(opts: { provider: AiProvider | null; dir?: string }): Harn
   return {
     store,
     sent,
+    filePath,
     deps: {
       syncEngine: {
         syncWorkspace: async () => ({ teamId: '', messagesRead: 0, channelsSynced: 0 }),
